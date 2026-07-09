@@ -1,0 +1,68 @@
+# training/loss.pseudo
+
+# Cross-entropy loss [a math formula that measures how wrong the model's guess is by comparing predicted probabilities with the actual correct word].
+
+# Computes how far off the predicted probabilities are from the correct target words
+# logits shape: (batch_size, context_length, vocab_size)
+# targets shape: (batch_size, context_length)
+function calculate_cross_entropy_loss(logits, targets, pad_token_id=0):
+    batch_size = get_dim_size(logits, 0)
+    context_length = get_dim_size(logits, 1)
+    vocab_size = get_dim_size(logits, 2)
+    
+    total_loss = 0.0
+    valid_tokens_count = 0
+    
+    for b from 0 to batch_size - 1:
+        for c from 0 to context_length - 1:
+            target_id = targets[b][c]
+            
+            # Skip calculation if the target is a padding token [an empty token used to fill up space to make lists the same length]
+            if target_id == pad_token_id:
+                continue
+                
+            # Retrieve the raw prediction scores (logits) for this specific position
+            token_logits = logits[b][c] # List of size vocab_size
+            
+            # Convert raw scores to percentages using Softmax [a math function that turns raw numbers into percentages that add up to 100%]
+            probabilities = softmax(token_logits)
+            
+            # Get the predicted probability for the actual correct word
+            correct_word_prob = probabilities[target_id]
+            
+            # Prevent taking logarithm [a math function that measures power or magnitude, here used to penalize wrong guesses more heavily] of zero
+            if correct_word_prob < 0.0000000001:
+                correct_word_prob = 0.0000000001
+                
+            # Compute negative log probability: lower probability results in a higher loss (penalty)
+            token_loss = -1.0 * logarithm(correct_word_prob)
+            
+            total_loss = total_loss + token_loss
+            valid_tokens_count = valid_tokens_count + 1
+            
+    # Return average loss over all valid tokens in the batch
+    if valid_tokens_count > 0:
+        return total_loss / valid_tokens_count
+    else:
+        return 0.0
+
+
+# Math helper for Softmax
+function softmax(logits_list):
+    # Find max value to subtract (prevents numbers from getting too large during exponentiation)
+    max_val = find_max(logits_list)
+    
+    exponents = []
+    sum_exponents = 0.0
+    for val in logits_list:
+        # e^x calculation
+        exp_val = math_exponent(val - max_val)
+        exponents.append(exp_val)
+        sum_exponents = sum_exponents + exp_val
+        
+    probabilities = []
+    for exp_val in exponents:
+        # Divide each exponent by the sum to get percentage between 0 and 1
+        probabilities.append(exp_val / sum_exponents)
+        
+    return probabilities

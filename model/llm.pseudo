@@ -1,0 +1,68 @@
+# model/llm.pseudo
+
+# LLM model assembly [connecting the pieces to form the complete Large Language Model].
+
+class LLMModel:
+    
+    # Initialize the complete model architecture
+    function initialize(vocab_size, embedding_dim, num_heads, hidden_dim, num_layers [the number of stacked transformer blocks], max_context_length):
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        self.max_context_length = max_context_length
+        
+        # Core layers
+        self.word_embedding = EmbeddingLayer(vocab_size, embedding_dim)
+        self.pos_embedding = PositionalEmbeddingLayer(max_context_length, embedding_dim)
+        
+        # Stack of Transformer blocks
+        self.blocks = []
+        for i from 1 to num_layers:
+            self.blocks.append(TransformerBlock(embedding_dim, num_heads, hidden_dim))
+            
+        # Final normalization step before outputs
+        self.final_norm = LayerNormalization(embedding_dim)
+        
+        # Language Model Head [the final output projection layer that converts word vectors back into raw token scores]
+        # Weight shape: (embedding_dim, vocab_size)
+        self.lm_head_weights = create_random_2d_grid(rows=embedding_dim, columns=vocab_size)
+        self.lm_head_bias = create_list_of_zeros(size=vocab_size)
+
+    # Helper function to build a causal mask [a triangular grid used to block the model from looking at future words]
+    # For a context of length L, generates an L x L grid where upper entries are true (blocked) and lower entries are false
+    function generate_causal_mask(length):
+        mask = create_2d_grid_of_zeros(rows=length, columns=length)
+        for r from 0 to length - 1:
+            for c from 0 to length - 1:
+                # If column index is greater than row index, it is in the future
+                if c > r:
+                    mask[r][c] = 1 # 1 represents "should block"
+        return mask
+
+    # Forward computation of the entire model
+    # inputs shape: (batch_size, context_length)
+    function forward(inputs):
+        context_length = get_dim_size(inputs, dimension=1)
+        
+        # Step 1: Convert token IDs into word vectors
+        vectors = self.word_embedding.forward(inputs)
+        
+        # Step 2: Add position information to vectors
+        vectors = self.pos_embedding.forward(vectors)
+        
+        # Step 3: Generate mask to block future word visibility
+        mask = self.generate_causal_mask(context_length)
+        
+        # Step 4: Run vectors through the stack of Transformer blocks
+        for block in self.blocks:
+            vectors = block.forward(vectors, mask)
+            
+        # Step 5: Normalize outputs
+        normalized_vectors = self.final_norm.forward(vectors)
+        
+        # Step 6: Compute logits [raw scores for each vocabulary word]
+        # We multiply the normalized word vectors of shape (batch_size, context_length, embedding_dim)
+        # by the output projection matrix of shape (embedding_dim, vocab_size)
+        logits = matrix_multiply(normalized_vectors, self.lm_head_weights)
+        logits = add_bias_vector(logits, self.lm_head_bias) # shape: (batch_size, context_length, vocab_size)
+        
+        return logits

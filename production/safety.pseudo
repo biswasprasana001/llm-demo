@@ -1,0 +1,65 @@
+# production/safety.pseudo
+
+# Safety filter [a content moderator program that screens user inputs and model outputs to block harmful, offensive, or policy-violating text].
+
+class SafetyFilter:
+    
+    # Initialize the safety systems
+    function initialize(blocked_words_list, embedding_model=null, bad_prompts_database=null):
+        self.blocked_words = blocked_words_list
+        self.embedding_model = embedding_model       # A model used to convert text to vectors
+        self.bad_prompts_database = bad_prompts_database # Database of known policy-violating prompts
+        self.similarity_threshold = 0.85              # Sensitivity level for blocking similar texts
+
+    # Screen incoming user inputs
+    function inspect_input(user_prompt):
+        # Step 1: Text analysis check (Blacklist check)
+        # Search for exact matches of blocked terms
+        if self.contains_blocked_words(user_prompt):
+            return { "is_safe": false, "reason": "Input contains forbidden words." }
+            
+        # Step 2: Semantic similarity check [comparing the meaning of the input to known bad topics]
+        # We do this to catch people who rephrase bad questions to bypass simple word filters
+        if self.embedding_model is not null and self.bad_prompts_database is not null:
+            # Convert user text into a vector
+            prompt_vector = self.embedding_model.get_vector(user_prompt)
+            
+            for bad_vector in self.bad_prompts_database:
+                # Compute Cosine Similarity [a math formula that measures how close the directions of two vectors are, ranging from -1 to 1]
+                similarity = compute_cosine_similarity(prompt_vector, bad_vector)
+                
+                # If the meaning is too close to a known bad prompt, block it
+                if similarity >= self.similarity_threshold:
+                    return { "is_safe": false, "reason": "Input is semantically too similar to restricted content." }
+                    
+        return { "is_safe": true, "reason": "" }
+
+    # Screen outgoing model outputs before the user sees them
+    function inspect_output(model_generated_text):
+        # Step 1: Check generated output for policy-violating words
+        if self.contains_blocked_words(model_generated_text):
+            return { "is_safe": false, "reason": "Generated output contains unsafe language." }
+            
+        # Step 2: Rule-based checks
+        # e.g., checking for accidental leaks of personal information (credit cards, phone numbers)
+        if self.contains_personal_information(model_generated_text):
+            return { "is_safe": false, "reason": "Generated output contains private personal information." }
+            
+        return { "is_safe": true, "reason": "" }
+
+    # Helper function to check word blacklist
+    function contains_blocked_words(text):
+        lowercase_text = convert_to_lowercase(text)
+        for word in self.blocked_words:
+            # Check if word is a substring of the text
+            if word is in lowercase_text:
+                return true
+        return false
+
+    # Helper function using regex [regular expressions: structured search patterns to find specific formatting templates]
+    # This checks for structural patterns of credit card numbers or phone numbers
+    function contains_personal_information(text):
+        credit_card_pattern = "\\b(?:\\d[ -]*?){13,16}\\b"
+        if regex_match(text, credit_card_pattern):
+            return true
+        return false

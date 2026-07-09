@@ -1,0 +1,59 @@
+# inference/sampler.pseudo
+
+# Sampler [a decision-making utility that adjusts word probabilities and picks the next word from the list].
+
+# Takes the raw scores (logits) from the model and chooses a word based on selection settings
+# logits: list of vocab_size raw scores
+function sample_next_token(logits, temperature=1.0, top_k=50, top_p=0.9):
+    
+    # Step 1: Apply temperature scaling [adjusting how creative or predictable the model's guesses are]
+    # Dividing logits by temperature changes their spread before softmax
+    # - Low temperature (e.g., 0.2) makes the highest score stand out even more (very predictable output)
+    # - High temperature (e.g., 1.5) flattens scores, giving low-probability words a higher chance (very creative/random output)
+    scaled_logits = []
+    for score in logits:
+        scaled_logits.append(score / temperature)
+        
+    # Step 2: Apply Top-K filtering [keeping only the 'K' most likely words and throwing away the rest]
+    if top_k > 0:
+        # Sort indices based on their score values in descending order
+        sorted_indices = get_sorted_indices(scaled_logits, descending=true)
+        
+        # Keep only the top_k indices, and set all other scores to a very low negative number (effectively zero probability)
+        for idx from top_k to length(sorted_indices) - 1:
+            bad_index = sorted_indices[idx]
+            scaled_logits[bad_index] = -999999999.0
+            
+    # Step 3: Compute probabilities using Softmax [converting adjusted scores into percentages that add up to 100%]
+    probabilities = softmax(scaled_logits) # List of size vocab_size
+    
+    # Step 4: Apply Top-P (Nucleus) sampling [keeping only the top set of words whose combined probability adds up to 'P' percent]
+    # This prevents the model from choosing weird, low-probability words when Top-K is too big
+    if top_p < 1.0:
+        sorted_indices = get_sorted_indices(probabilities, descending=true)
+        
+        cumulative_probability = 0.0
+        cutoff_index = length(sorted_indices) - 1
+        
+        for i from 0 to length(sorted_indices) - 1:
+            idx = sorted_indices[i]
+            cumulative_probability = cumulative_probability + probabilities[idx]
+            
+            # If we've reached or passed the target percentage (e.g., 90%), stop adding words to our selection pool
+            if cumulative_probability >= top_p:
+                cutoff_index = i
+                break
+                
+        # Set probabilities of all words outside the nucleus pool to 0
+        for i from cutoff_index + 1 to length(sorted_indices) - 1:
+            zero_index = sorted_indices[i]
+            probabilities[zero_index] = 0.0
+            
+        # Re-normalize remaining probabilities so they add up to 1.0 (100%) again
+        probabilities = normalize_probabilities(probabilities)
+        
+    # Step 5: Choose a word from the final probability distribution [a list of percentages mapping to each word]
+    # We use random sampling based on the weights (like spinning a roulette wheel where larger slices have higher chances)
+    chosen_token_id = weighted_random_choice(probabilities)
+    
+    return chosen_token_id

@@ -1,0 +1,98 @@
+# production/batcher.pseudo
+
+# Dynamic batcher [a manager that combines multiple separate user text requests into a single parallel group on the fly to maximize hardware speed and efficiency].
+
+class DynamicBatcher:
+    
+    # Initialize the batcher settings
+    function initialize(model, tokenizer, max_batch_size=8, wait_time_ms=10 [how long to wait for more requests to arrive before running the model]):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.max_batch_size = max_batch_size
+        self.wait_time_ms = wait_time_ms
+        self.incoming_queue = thread_safe_queue() # Queue [a first-in, first-out line of tasks, like a line at a grocery checkout]
+        self.active_batch = [] # Currently active requests undergoing word-by-word generation
+
+    # Function called by the web server when a user submits a prompt
+    function add_request(prompt_text, max_new_tokens):
+        # Create a communication line (response queue) for this user to receive words in real-time
+        response_queue = create_communication_channel()
+        
+        request = {
+            "id": generate_unique_id(),
+            "input_tokens": self.tokenizer.encode(prompt_text),
+            "max_new_tokens": max_new_tokens,
+            "generated_count": 0,
+            "response_queue": response_queue,
+            "finished": false
+        }
+        
+        # Put the request into the wait line
+        self.incoming_queue.push(request)
+        return response_queue
+
+    # Background loop that runs constantly on the server
+    function execution_loop():
+        while server_is_running():
+            
+            # Step 1: Fill our batch up to max_batch_size
+            while length(self.active_batch) < self.max_batch_size:
+                # If wait line is empty, pause briefly to check for new inputs
+                if self.incoming_queue.is_empty():
+                    sleep(self.wait_time_ms)
+                    if self.incoming_queue.is_empty():
+                        break # Go ahead with whatever active requests we currently have
+                        
+                next_request = self.incoming_queue.pop()
+                self.active_batch.append(next_request)
+                
+            # If there are no requests to process, sleep and wait
+            if length(self.active_batch) == 0:
+                sleep(self.wait_time_ms)
+                continue
+                
+            # Step 2: Prepare batch inputs
+            # Different user prompts have different lengths, so we must pad them to the same size
+            max_len = find_longest_sequence(self.active_batch)
+            padded_inputs = []
+            
+            for req in self.active_batch:
+                tokens = req["input_tokens"]
+                # Add padding values [empty space tokens] to the left side of the prompt
+                padded = pad_left(tokens, target_length=max_len, pad_value=self.tokenizer.special_tokens["<PAD>"])
+                padded_inputs.append(padded)
+                
+            # Step 3: Run the batch through the model
+            # shape of batch output: (batch_size, max_len, vocab_size)
+            logits = self.model.forward(padded_inputs)
+            
+            # Step 4: Extract the next token for each active request
+            for idx from 0 to length(self.active_batch) - 1:
+                req = self.active_batch[idx]
+                
+                # Get the prediction logits for the last token position
+                last_pos = max_len - 1
+                token_logits = logits[idx][last_pos]
+                
+                # Choose the next token ID
+                next_token_id = sample_next_token(token_logits)
+                req["input_tokens"].append(next_token_id)
+                req["generated_count"] = req["generated_count"] + 1
+                
+                # Decode the single token code back to text
+                next_word = self.tokenizer.decode([next_token_id])
+                
+                # Send the word to the user's browser in real-time
+                req["response_queue"].send(next_word)
+                
+                # Check if this user's text generation is finished
+                is_eos = (next_token_id == self.tokenizer.special_tokens["<EOS>"])
+                reached_limit = (req["generated_count"] >= req["max_new_tokens"])
+                
+                if is_eos or reached_limit:
+                    req["finished"] = true
+                    # Close user's communication channel
+                    req["response_queue"].close()
+                    
+            # Step 5: Remove finished requests from the active batch list
+            self.active_batch = filter_active_requests(self.active_batch)

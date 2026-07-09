@@ -1,0 +1,45 @@
+# production/kv_cache.pseudo
+
+# KV cache [Key-Value Cache: a memory storage trick that saves previously computed word relations so the model does not have to re-read the entire sentence from scratch every time it generates a single new word].
+
+class KVCache:
+    
+    # Initialize the memory cache
+    function initialize(num_layers):
+        self.num_layers = num_layers
+        self.cached_keys = []   # Will hold key matrices [tables of word properties] for each layer
+        self.cached_values = [] # Will hold value matrices [tables of word meanings] for each layer
+        
+        # Create an empty list for each transformer layer
+        for i from 0 to num_layers - 1:
+            self.cached_keys.append(empty_list())
+            self.cached_values.append(empty_list())
+
+    # Add new calculated keys and values to the cache
+    # new_keys shape: (batch_size, 1, embedding_dim)
+    # new_values shape: (batch_size, 1, embedding_dim)
+    function update(layer_idx, new_keys, new_values):
+        # Retrieve previous lists
+        existing_keys = self.cached_keys[layer_idx]
+        existing_values = self.cached_values[layer_idx]
+        
+        # Append the new token properties to the historical lists
+        # This increases the sequence length dimension by 1
+        updated_keys = concatenate_along_sequence(existing_keys, new_keys)
+        updated_values = concatenate_along_sequence(existing_values, new_values)
+        
+        # Store back in the cache
+        self.cached_keys[layer_idx] = updated_keys
+        self.cached_values[layer_idx] = updated_values
+        
+        return updated_keys, updated_values
+
+    # Get cached items for a layer
+    function get(layer_idx):
+        return self.cached_keys[layer_idx], self.cached_values[layer_idx]
+
+    # Reset cache when a new conversation prompt starts
+    function clear():
+        for i from 0 to self.num_layers - 1:
+            self.cached_keys[i] = empty_list()
+            self.cached_values[i] = empty_list()

@@ -1,0 +1,86 @@
+# data/tokenizer.pseudo
+
+# A tokenizer [a tool that cuts text into smaller pieces and changes them into numbers] splits strings [lists of letters and words] into smaller pieces and converts them to numbers so the model can process them.
+
+class Tokenizer:
+    
+    # Initialize the tokenizer with an empty dictionary [a key-to-value matching table]
+    function initialize():
+        self.vocab [vocabulary: the list of all unique word pieces we know] = empty_dictionary()
+        self.inverse_vocab [inverse vocabulary: the list to look up word pieces by their numbers] = empty_dictionary()
+        self.special_tokens = {
+            "<PAD>": 0,    # padding token [an empty token used to fill up space to make lists the same length]
+            "<UNK>": 1,    # unknown token [a token representing a word that the model has never seen before]
+            "<BOS>": 2,    # beginning of sequence token [a token that marks where a text begins]
+            "<EOS>": 3     # end of sequence token [a token that marks where a text ends]
+        }
+        
+        # Add special tokens to our lookup tables
+        for each token, number in self.special_tokens:
+            self.vocab[token] = number
+            self.inverse_vocab[number] = token
+
+    # Function to build vocabulary from a corpus [a big library of text documents]
+    function build_vocabulary(corpus):
+        current_id = 4 # Start numbering after special tokens
+        
+        for each text in corpus:
+            cleaned_text = self.clean(text)
+            words = self.split_words(cleaned_text)
+            
+            for each word in words:
+                if word is not in self.vocab:
+                    self.vocab[word] = current_id
+                    self.inverse_vocab[current_id] = word
+                    current_id = current_id + 1
+
+    # Text cleaning helper
+    function clean(text):
+        # Convert text to lowercase to prevent duplicates
+        lowercase_text = convert_to_lowercase(text)
+        
+        # Remove extra whitespace [spaces, tabs, and new lines]
+        cleaned = remove_extra_spaces(lowercase_text)
+        return cleaned
+
+    # Split clean text into individual words
+    function split_words(text):
+        # In a real production system, subword tokenization [splitting words into smaller meaningful parts like 'play' and 'ing'] is used. 
+        # Here we do simple space-based splitting.
+        return split_string_by_spaces(text)
+
+    # Encode function [converts human text into lists of numbers]
+    function encode(text):
+        cleaned = self.clean(text)
+        words = self.split_words(cleaned)
+        
+        # Start sequence with beginning token
+        encoded_numbers = [self.vocab["<BOS>"]]
+        
+        for each word in words:
+            if word in self.vocab:
+                encoded_numbers.append(self.vocab[word])
+            else:
+                encoded_numbers.append(self.vocab["<UNK>"])
+                
+        # End sequence with ending token
+        encoded_numbers.append(self.vocab["<EOS>"])
+        return encoded_numbers # Returns an array [a structured list of numbers]
+
+    # Decode function [converts lists of numbers back into human text]
+    function decode(encoded_numbers):
+        words = []
+        for each number in encoded_numbers:
+            # Skip special formatting tokens during decoding
+            if number == self.vocab["<PAD>"]:
+                continue
+            if number == self.vocab["<BOS>"] or number == self.vocab["<EOS>"]:
+                continue
+                
+            if number in self.inverse_vocab:
+                words.append(self.inverse_vocab[number])
+            else:
+                words.append("<UNK>")
+                
+        # Join the list of words back into a single text sentence
+        return join_words_with_spaces(words)

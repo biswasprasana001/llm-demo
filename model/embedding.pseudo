@@ -1,0 +1,67 @@
+# model/embedding.pseudo
+
+# Embedding [converting a number code into a list of numbers representing word meaning] and positional embedding [adding numbers that tell the model where a word is located in a sentence] layers.
+
+class EmbeddingLayer:
+    
+    # Initialize the embedding layer
+    function initialize(vocab_size [total number of words in our vocabulary dictionary], embedding_dim [the size of the list of numbers representing the meaning of each word]):
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        
+        # Create a weights lookup table of size (vocab_size, embedding_dim)
+        # We fill this with small random numbers to start with
+        self.weights = create_random_2d_grid(rows=vocab_size, columns=embedding_dim)
+
+    # Convert token IDs into continuous vectors
+    # inputs shape: (batch_size, context_length)
+    function forward(inputs):
+        batch_size = get_number_of_rows(inputs)
+        context_length = get_number_of_columns(inputs)
+        
+        # Prepare output container of shape (batch_size, context_length, embedding_dim)
+        output_vectors = create_empty_3d_grid(batch_size, context_length, self.embedding_dim)
+        
+        for b from 0 to batch_size - 1:
+            for c from 0 to context_length - 1:
+                token_id = inputs[b][c]
+                
+                # Fetch the word vector from our weights matrix
+                # weights[token_id] is a list of length embedding_dim
+                output_vectors[b][c] = self.weights[token_id]
+                
+        return output_vectors # returns a 3D grid of numbers
+
+
+class PositionalEmbeddingLayer:
+    
+    # Initialize the position embedding layer
+    function initialize(max_context_length [maximum length of a sentence], embedding_dim):
+        self.max_context_length = max_context_length
+        self.embedding_dim = embedding_dim
+        
+        # Create a learned weights grid of size (max_context_length, embedding_dim)
+        # This allows the model to learn the importance of different word positions
+        self.position_weights = create_random_2d_grid(rows=max_context_length, columns=embedding_dim)
+
+    # Add position vectors to the existing word vectors
+    # word_vectors shape: (batch_size, context_length, embedding_dim)
+    function forward(word_vectors):
+        batch_size = get_dim_size(word_vectors, dimension=0)
+        context_length = get_dim_size(word_vectors, dimension=1)
+        
+        # Prepare output grid
+        combined_vectors = create_empty_3d_grid(batch_size, context_length, self.embedding_dim)
+        
+        for b from 0 to batch_size - 1:
+            for c from 0 to context_length - 1:
+                # Fetch the position vector for the current index 'c'
+                pos_vector = self.position_weights[c]
+                
+                # Retrieve the original word meaning vector
+                word_vector = word_vectors[b][c]
+                
+                # Add them together element-by-element [adding matching position numbers in the lists]
+                combined_vectors[b][c] = add_lists_elementwise(word_vector, pos_vector)
+                
+        return combined_vectors

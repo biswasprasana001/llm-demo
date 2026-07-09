@@ -1,0 +1,99 @@
+# model/transformer.pseudo
+
+# Components of the Transformer architecture [the design of the model that processes sentences by looking at all words at the same time using attention].
+
+class LayerNormalization:
+    
+    # Initialize the normalization layer
+    function initialize(embedding_dim, epsilon=0.00001 [a tiny number added to prevent dividing by zero]):
+        self.epsilon = epsilon
+        # Scale parameters [multipliers that change the height of numbers]
+        self.gamma = create_list_of_ones(size=embedding_dim)
+        # Shift parameters [adders that slide numbers up or down]
+        self.beta = create_list_of_zeros(size=embedding_dim)
+
+    # Normalize vectors
+    # inputs shape: (batch_size, context_length, embedding_dim)
+    function forward(inputs):
+        batch_size = get_dim_size(inputs, 0)
+        context_length = get_dim_size(inputs, 1)
+        embedding_dim = get_dim_size(inputs, 2)
+        
+        normalized = create_empty_3d_grid(batch_size, context_length, embedding_dim)
+        
+        for b from 0 to batch_size - 1:
+            for c from 0 to context_length - 1:
+                vector = inputs[b][c] # List of size embedding_dim
+                
+                # Compute mean [the average value of a list of numbers]
+                mean_val = calculate_mean(vector)
+                
+                # Compute variance [a measure of how spread out the numbers in a list are from the average]
+                variance_val = calculate_variance(vector, mean_val)
+                
+                # Normalize each number in the list
+                for d from 0 to embedding_dim - 1:
+                    standardized_val = (vector[d] - mean_val) / square_root(variance_val + self.epsilon)
+                    
+                    # Scale and shift the value using learned settings
+                    normalized[b][c][d] = (standardized_val * self.gamma[d]) + self.beta[d]
+                    
+        return normalized
+
+
+class FeedForwardNetwork:
+    
+    # Initialize the two-layer neural network
+    function initialize(embedding_dim, hidden_dim [the size of the inner layer, usually 4 times larger than embedding_dim]):
+        # First layer weights and biases
+        self.W1 = create_random_2d_grid(rows=embedding_dim, columns=hidden_dim)
+        self.b1 = create_list_of_zeros(size=hidden_dim)
+        
+        # Second layer weights and biases
+        self.W2 = create_random_2d_grid(rows=hidden_dim, columns=embedding_dim)
+        self.b2 = create_list_of_zeros(size=embedding_dim)
+
+    # Forward computation
+    function forward(inputs):
+        # First linear transformation: X * W1 + b1
+        h1 = matrix_multiply(inputs, self.W1)
+        h1 = add_bias_vector(h1, self.b1)
+        
+        # Apply activation function [a formula that decides if a signal is strong enough to pass through, introducing non-linear curves to help learn complex patterns]
+        # We use GELU [Gaussian Error Linear Unit, a smooth activation function that slightly lets negative numbers through]
+        activated = apply_gelu_activation(h1)
+        
+        # Second linear transformation: Activated * W2 + b2
+        h2 = matrix_multiply(activated, self.W2)
+        final_output = add_bias_vector(h2, self.b2)
+        
+        return final_output
+
+
+class TransformerBlock:
+    
+    # Initialize the block
+    function initialize(embedding_dim, num_heads, hidden_dim):
+        self.attention = MultiHeadAttention(embedding_dim, num_heads)
+        self.norm1 = LayerNormalization(embedding_dim)
+        
+        self.feed_forward = FeedForwardNetwork(embedding_dim, hidden_dim)
+        self.norm2 = LayerNormalization(embedding_dim)
+
+    # Process vectors through self-attention and feed-forward layers
+    function forward(inputs, mask=null):
+        # Step 1: Normalize input, compute attention, and add residual connection [adding the inputs back to the outputs to prevent information from getting lost]
+        norm_inputs_1 = self.norm1.forward(inputs)
+        attn_outputs = self.attention.forward(norm_inputs_1, mask)
+        
+        # Add output of attention back to original inputs (Residual connection)
+        x1 = add_grids_elementwise(inputs, attn_outputs)
+        
+        # Step 2: Normalize x1, run through feed-forward, and add residual connection again
+        norm_inputs_2 = self.norm2.forward(x1)
+        ff_outputs = self.feed_forward.forward(norm_inputs_2)
+        
+        # Add output of feed-forward back to x1 (Residual connection)
+        x2 = add_grids_elementwise(x1, ff_outputs)
+        
+        return x2

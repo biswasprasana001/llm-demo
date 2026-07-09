@@ -1,0 +1,78 @@
+# data/dataset.pseudo
+
+# A dataset [a collections manager for teaching data] loads raw text, turns it into token IDs, and splits it into inputs and targets for the model.
+
+class Dataset:
+    
+    # Initialize the dataset manager
+    function initialize(raw_texts, tokenizer, context_length [the maximum number of words the model can look at at one time]):
+        self.tokenizer = tokenizer
+        self.context_length = context_length
+        self.examples = []
+        
+        # Process and build dataset
+        self.prepare_data(raw_texts)
+
+    # Process texts into training pairs
+    function prepare_data(raw_texts):
+        for each text in raw_texts:
+            # Convert text into a list of numbers using our tokenizer
+            token_ids = self.tokenizer.encode(text)
+            
+            # If the text is shorter than what we need, skip it or pad it
+            if length(token_ids) < 2:
+                continue
+                
+            # Create training slices using a sliding window
+            for i from 0 to length(token_ids) - 2 step 1:
+                # Get the chunk of input tokens
+                end_index = i + self.context_length
+                
+                # Extract input sequence and target sequence
+                input_seq = slice_list(token_ids, start=i, end=end_index)
+                target_seq = slice_list(token_ids, start=i + 1, end=end_index + 1)
+                
+                # Pad sequences if they are shorter than context_length
+                input_seq = self.pad_sequence(input_seq, self.tokenizer.special_tokens["<PAD>"])
+                target_seq = self.pad_sequence(target_seq, self.tokenizer.special_tokens["<PAD>"])
+                
+                # Store the training pair
+                self.examples.append({
+                    "input": input_seq,
+                    "target": target_seq
+                })
+
+    # Helper function to pad sequence to match context_length
+    function pad_sequence(sequence, pad_value):
+        current_len = length(sequence)
+        if current_len < self.context_length:
+            padding_needed = self.context_length - current_len
+            for j from 1 to padding_needed:
+                sequence.append(pad_value)
+        return sequence
+
+    # Return total number of examples
+    function size():
+        return length(self.examples)
+
+    # Get a specific item by its index [numerical position in a list]
+    function get_item(index):
+        return self.examples[index]
+
+    # Batching function [groups multiple items into a single tensor grid for parallel computing]
+    function get_batch(batch_size, batch_index):
+        start = batch_index * batch_size
+        end = start + batch_size
+        
+        batch_inputs = []
+        batch_targets = []
+        
+        for idx from start to end - 1:
+            if idx < self.size():
+                example = self.get_item(idx)
+                batch_inputs.append(example["input"])
+                batch_targets.append(example["target"])
+                
+        # Return as 2D grids of numbers
+        # shape [dimensions size]: (batch_size, context_length)
+        return batch_inputs, batch_targets

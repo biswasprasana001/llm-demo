@@ -1,0 +1,61 @@
+# training/optimizer.pseudo
+
+# Adam optimizer [a smart helper program that adjusts the model's settings using the history of previous corrections to make learning faster and more stable].
+
+class AdamOptimizer:
+    
+    # Initialize optimizer settings
+    function initialize(model_parameters [the settings/weights of our model], learning_rate=0.0003, beta1=0.9 [decay rate for momentum history], beta2=0.999 [decay rate for variance history], epsilon=0.00000001):
+        self.parameters = model_parameters
+        self.learning_rate = learning_rate
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        
+        # Track training step count
+        self.t = 0
+        
+        # Track history of gradient [the direction and amount of error change] direction (first moment)
+        self.m = []
+        # Track history of gradient size (second moment)
+        self.v = []
+        
+        # Initialize tracking variables for every single parameter weight to zero
+        for param in self.parameters:
+            self.m.append(create_zeros_matching_shape(param))
+            self.v.append(create_zeros_matching_shape(param))
+
+    # Perform a single optimization step [update settings based on current errors]
+    # gradients are calculated during backpropagation
+    function step(gradients):
+        self.t = self.t + 1
+        
+        for idx from 0 to length(self.parameters) - 1:
+            param = self.parameters[idx]
+            grad = gradients[idx]
+            
+            # Step 1: Update first moment estimate (momentum [keeping track of which direction we were already moving to avoid sudden changes])
+            # m_t = beta1 * m_{t-1} + (1 - beta1) * gradient
+            self.m[idx] = add_weighted(self.m[idx], self.beta1, grad, 1.0 - self.beta1)
+            
+            # Step 2: Update second moment estimate (variance [measuring how volatile the changes are to scale them down if they jump around too much])
+            # v_t = beta2 * v_{t-1} + (1 - beta2) * (gradient^2)
+            grad_squared = square_values(grad)
+            self.v[idx] = add_weighted(self.v[idx], self.beta2, grad_squared, 1.0 - self.beta2)
+            
+            # Step 3: Compute bias correction [adjusting for the fact that we started with zero history at step one]
+            bias_correction1 = 1.0 - math_power(self.beta1, self.t)
+            bias_correction2 = 1.0 - math_power(self.beta2, self.t)
+            
+            # Step 4: Calculate the size and direction of weight change
+            # step_update = (m / bias_correction1) / (sqrt(v / bias_correction2) + epsilon)
+            m_hat = divide_by_constant(self.m[idx], bias_correction1)
+            v_hat = divide_by_constant(self.v[idx], bias_correction2)
+            
+            denominator = add_constant(square_root_elements(v_hat), self.epsilon)
+            update_direction = divide_elements(m_hat, denominator)
+            
+            # Step 5: Adjust the model parameter by subtracting the scaled update direction
+            # parameter = parameter - learning_rate * update_direction
+            adjustment = scale_values(update_direction, self.learning_rate)
+            self.parameters[idx] = subtract_elements(self.parameters[idx], adjustment)

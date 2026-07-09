@@ -1,0 +1,79 @@
+# model/attention.pseudo
+
+# Multi-head attention [a mechanism that allows the model to connect different words in a sentence, calculating how much focus/attention each word should pay to every other word].
+
+class MultiHeadAttention:
+    
+    # Initialize the multi-head attention layer
+    function initialize(embedding_dim, num_heads [the number of parallel focus points the model uses]):
+        self.embedding_dim = embedding_dim
+        self.num_heads = num_heads
+        
+        # Each head handles a smaller portion of the word vectors
+        self.head_dim = embedding_dim / num_heads
+        
+        # Projection matrices [learned tables of weights used to transform vectors from one size to another]
+        # We need projections to create Query, Key, and Value lists for each head
+        self.W_query = create_random_2d_grid(rows=embedding_dim, columns=embedding_dim)
+        self.W_key   = create_random_2d_grid(rows=embedding_dim, columns=embedding_dim)
+        self.W_value = create_random_2d_grid(rows=embedding_dim, columns=embedding_dim)
+        
+        # Output projection to mix the outputs of all heads back together
+        self.W_out   = create_random_2d_grid(rows=embedding_dim, columns=embedding_dim)
+
+    # Forward pass of self-attention
+    # inputs shape: (batch_size, context_length, embedding_dim)
+    function forward(inputs, mask=null):
+        batch_size = get_dim_size(inputs, dimension=0)
+        context_length = get_dim_size(inputs, dimension=1)
+        
+        # Step 1: Calculate raw Query, Key, and Value vectors for the entire sequence
+        # We use matrix multiplication [multiplying grids of numbers together]
+        Q_all = matrix_multiply(inputs, self.W_query) # shape: (batch_size, context_length, embedding_dim)
+        K_all = matrix_multiply(inputs, self.W_key)   # shape: (batch_size, context_length, embedding_dim)
+        V_all = matrix_multiply(inputs, self.W_value) # shape: (batch_size, context_length, embedding_dim)
+        
+        # Step 2: Split vectors into multiple heads
+        # This reshapes the grids from (batch_size, context_length, embedding_dim)
+        # to (batch_size, num_heads, context_length, head_dim)
+        Q_heads = split_heads(Q_all, self.num_heads)
+        K_heads = split_heads(K_all, self.num_heads)
+        V_heads = split_heads(V_all, self.num_heads)
+        
+        # Output container for each head
+        head_outputs = []
+        
+        # Step 3: Run attention calculation for each head independently
+        for h from 0 to self.num_heads - 1:
+            Q = Q_heads[h] # shape: (batch_size, context_length, head_dim)
+            K = K_heads[h] # shape: (batch_size, context_length, head_dim)
+            V = V_heads[h] # shape: (batch_size, context_length, head_dim)
+            
+            # Compute raw attention scores [similarity measures between query and key words]
+            # scores = Q * K_transpose / square_root(head_dim)
+            # Transpose [flipping a grid of numbers over its diagonal so rows become columns] is needed to multiply correctly
+            K_T = transpose_matrix(K)
+            scores = matrix_multiply(Q, K_T) # shape: (batch_size, context_length, context_length)
+            
+            # Scale scores by dividing by square root of head_dim to prevent numbers from blowing up
+            scale_factor = square_root(self.head_dim)
+            scores = divide_by_constant(scores, scale_factor)
+            
+            # Step 4: Apply causal mask [blocking out words that appear in the future so the model can only look at past words]
+            if mask is not null:
+                scores = apply_mask(scores, mask, fill_value=-999999999.0) # Using large negative number so future words get zero attention weight
+            
+            # Step 5: Softmax [converting raw score values into percentages that add up to 100%]
+            attention_weights = softmax_on_rows(scores) # shape: (batch_size, context_length, context_length)
+            
+            # Step 6: Multiply attention percentages by Value vectors
+            context_vectors = matrix_multiply(attention_weights, V) # shape: (batch_size, context_length, head_dim)
+            head_outputs.append(context_vectors)
+            
+        # Step 7: Combine (concatenate [gluing lists of numbers together end-to-end]) all head outputs back into one grid
+        combined_outputs = concatenate_heads(head_outputs) # shape: (batch_size, context_length, embedding_dim)
+        
+        # Step 8: Apply output projection matrix
+        final_output = matrix_multiply(combined_outputs, self.W_out)
+        
+        return final_output

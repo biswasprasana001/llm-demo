@@ -1,0 +1,62 @@
+# inference/generator.pseudo
+
+# Generator [the loop program that prints text word by word using auto-regressive generation].
+
+class Generator:
+    
+    # Initialize generator with model and tokenizer
+    function initialize(model, tokenizer):
+        self.model = model
+        self.tokenizer = tokenizer
+
+    # Generate text from a prompt
+    function generate(prompt_text, max_new_tokens=100, temperature=1.0, top_k=50, top_p=0.9):
+        # Step 1: Encode the starting prompt text into lists of numbers
+        input_tokens = self.tokenizer.encode(prompt_text)
+        
+        # Keep track of only the newly generated tokens
+        generated_tokens = []
+        
+        # Step 2: Auto-regressive loop [generating one word at a time by feeding the model's own outputs back into it as inputs]
+        for step from 1 to max_new_tokens:
+            
+            # If our prompt + generated text gets longer than the model's memory limits,
+            # we crop [cut off older words from the beginning to fit the limits] the input
+            if length(input_tokens) > self.model.max_context_length:
+                input_tokens = slice_list(
+                    input_tokens, 
+                    start=length(input_tokens) - self.model.max_context_length, 
+                    end=length(input_tokens)
+                )
+                
+            # Put input tokens into batch format: shape (1, current_length)
+            batch_inputs = [input_tokens]
+            
+            # Step 3: Run the forward pass of the model
+            # logits shape: (1, current_length, vocab_size)
+            logits = self.model.forward(batch_inputs)
+            
+            # Step 4: Extract the logits for the very last word only
+            # The model predicts the next word for every position, but we only care about the absolute next word at the end
+            last_position_idx = length(input_tokens) - 1
+            next_word_logits = logits[0][last_position_idx] # List of size vocab_size
+            
+            # Step 5: Sample the next token ID using our sampler rules
+            next_token_id = sample_next_token(
+                next_word_logits, 
+                temperature=temperature, 
+                top_k=top_k, 
+                top_p=top_p
+            )
+            
+            # Step 6: Check if the model decided to finish
+            if next_token_id == self.tokenizer.special_tokens["<EOS>"]:
+                break
+                
+            # Step 7: Append the new token back to the inputs for the next loop step
+            input_tokens.append(next_token_id)
+            generated_tokens.append(next_token_id)
+            
+        # Step 8: Convert the generated number list back into human text
+        decoded_output = self.tokenizer.decode(generated_tokens)
+        return decoded_output
